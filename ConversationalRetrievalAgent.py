@@ -1,19 +1,20 @@
-from langchain_openai import OpenAI
+from langchain_ollama import ChatOllama
 from dotenv import load_dotenv
 from langchain.chains import ConversationalRetrievalChain
 import os
 
 load_dotenv()
 
-# Set the OpenAI API key from the environment variable
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-
 
 class ConversationalRetrievalAgent:
-    # Initialize the ConversationalRetrievalAgent with a vector database and a temperature for the OpenAI model
+    # Initialize the ConversationalRetrievalAgent with a vector database and a temperature for the Ollama model
     def __init__(self, vectordb, temperature=0.5):
         self.vectordb = vectordb
-        self.llm = OpenAI(temperature=temperature)
+        self.llm = ChatOllama(
+            model="gpt-oss:20b",
+            base_url="http://localhost:11434",
+            temperature=temperature
+        )
         self.chat_history = []
 
     # Method to get the chat history as a string
@@ -25,9 +26,9 @@ class ConversationalRetrievalAgent:
 
     # Method to set up the bot
     def setup_bot(self):
-        # Create a retriever from the vector database
-        retriever = self.vectordb.as_retriever(search_kwargs={"k": 4})
-        # Create a ConversationalRetrievalChain from the OpenAI model and the retriever
+        # Create a retriever from the vector database with more documents for better retrieval
+        retriever = self.vectordb.as_retriever(search_kwargs={"k": 10})
+        # Create a ConversationalRetrievalChain from the Ollama model and the retriever
         self.bot = ConversationalRetrievalChain.from_llm(
             self.llm,
             retriever,
@@ -37,13 +38,21 @@ class ConversationalRetrievalAgent:
 
     def generate_prompt(self, question):
         if not self.chat_history:
-            # Se è la prima domanda, usa un template specifico senza contesto di conversazione precedente
-            prompt = f"You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. \nQuestion: {question}\nContext: \nAnswer:"
+            # Enhanced prompt for first question with better context for person queries
+            prompt = f"""You are a helpful assistant for Dematic employees. Use the following pieces of retrieved context to answer the question about people, projects, or company information.
+
+If the question is about a specific person (like "Who is [Name]?"), look for information about their role, department, team, and responsibilities in the context.
+
+If you don't know the answer based on the provided context, just say that you don't know.
+
+Question: {question}
+Context: 
+Answer:"""
         else:
-            # If it is the first question, use a specific template without previous conversation context
+            # Context-aware prompt for follow-up questions
             context_entries = [f"Question: {q}\nAnswer: {a}" for q, a in self.chat_history[-3:]]
             context = "\n\n".join(context_entries)
-            prompt = f"Using the context provided by recent conversations, answer the new question in a concise and informative. Limit your answer to a maximum of three sentences.\n\nContext of recent conversations:\n{context}\n\nNew question: {question}\n\Answer:"
+            prompt = f"Using the context from recent conversations and the retrieved documents, answer the new question concisely and informatively.\n\nRecent conversation context:\n{context}\n\nNew question: {question}\n\nAnswer:"
         
         return prompt
     
